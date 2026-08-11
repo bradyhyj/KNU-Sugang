@@ -1,4 +1,6 @@
 from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions
 from selenium.common.exceptions import TimeoutException
@@ -6,6 +8,7 @@ from bs4 import BeautifulSoup
 import requests
 from requests.adapters import HTTPAdapter
 from multiprocessing import Pool, freeze_support
+from datetime import date # 올해 연도
 import os
 import signal
 import time
@@ -14,6 +17,19 @@ import argparse
 from generate_config import *
 import traceback
 
+
+## 현재 연도와 학기 구분을 위함
+now_year = date.today().year
+now_month = date.today().month
+
+## 학기 코드(sy.knu.ac.kr에서 불러올 때 필요함)
+if(now_month == 2):
+    semesterCode = "CMBS001400001"
+else:
+    semesterCode = "CMBS001400002"
+
+# 전역 설정 변수 초기화
+CONFIG = {}
 
 # DEBUG INFO WARNING ERROR CRITICAL
 
@@ -26,14 +42,15 @@ def sleep_exit(sec):
 
 def loginSugang(browser, snum, id, passwd):
     ## Login
+    ## 20260811 현재 수강신청 사이트에 맞게 수정함
     browser.get(CONFIG["general"]["sugang_url"])
-    e = browser.find_element_by_id("user.stu_nbr")
+    e = browser.find_element(By.ID, "stdno")
     e.send_keys(snum)
-    e = browser.find_element_by_id("user.usr_id")
+    e = browser.find_element(By.ID, "userId")
     e.send_keys(id)
-    e = browser.find_element_by_id("user.passwd")
+    e = browser.find_element(By.ID, "pssrd")
     e.send_keys(passwd)
-    e = browser.find_element_by_class_name("login")
+    e = browser.find_element(By.ID, "btn_login")
     e.click()
 
     ## Check if alert is present (which means login failure)
@@ -47,27 +64,74 @@ def loginSugang(browser, snum, id, passwd):
         print("INFO", "Login succeed")
         return True
 
-
+# 20260811 현재 상황에 맞게 수정함
 def getLecInfo(lecCode):
     session = requests.Session()
-    session.mount("http://", HTTPAdapter(max_retries=1000))
+    session.mount("https://", HTTPAdapter(max_retries=1000))
+
+    # payload
+    # sy.knu.ac.kr에서 강좌정보를 가져옵니다.
+    payload = {
+    "search": {
+        "estblYear": now_year,
+        "estblSmstrSctcd": semesterCode,
+        "sbjetCd": lecCode[0:8],
+        "sbjetNm": "",
+        "crgePrfssNm": "",
+        "sbjetRelmCd": "",
+        "sbjetSctcd": "",
+        "estblDprtnCd": "",
+        "rmtCrseYn": "",
+        "rprsnLctreLnggeSctcd": "",
+        "flplnCrseYn": "",
+        "pstinNtnnvRmtCrseYn": "",
+        "dgGbDstrcRmtCrseYn": "",
+        "sugrdEvltnYn": "",
+        "prctsExrmnYn": "",
+        "gubun": "01",
+        "isApi": "Y",
+        "bldngSn": "",
+        "bldngCd": "",
+        "bldngNm": "",
+        "lssnsLcttmUntcd": "",
+        "sbjetSctcd2": "",
+        "contents": lecCode[0:8],
+        "lctreLnggeSctcd": "ko",
+        "knuFtrDesigYn": "",
+        "cltreHmntsCltreYn": "",
+        "sdgCltreYn": "",
+        "rltmCrseYn": "",
+        "riseRmtCrseYn": "",
+        "coRcgnnSbjetYn": ""
+    }}
+
     # response = session.post(CONFIG["general"]["lecinfo_url"], data={
-    response = session.post("http://my.knu.ac.kr/stpo/stpo/cour/lectReqCntEnq/list.action", data={
-        "lectReqCntEnq.search_open_yr_trm": "20201",
-        "lectReqCntEnq.search_subj_cde": lecCode[0:7],
-        "lectReqCntEnq.search_sub_class_cde": lecCode[7:],
-        "searchValue": lecCode
-    })
-    # soup = BeautifulSoup(response.text, "html.parser")
-    soup = BeautifulSoup(response.text, "lxml")
-    res = {
-        "subj_class_cde": soup.find("td", class_="subj_class_cde").text,
-        "subj_nm": soup.find("td", class_="subj_nm").text,
-        "unit": int(soup.find("td", class_="unit").text),
-        "prof_nm": soup.find("td", class_="prof_nm").text,
-        "lect_quota": int(soup.find("td", class_="lect_quota").text),
-        "lect_req_cnt": int(soup.find("td", class_="lect_req_cnt").text),
-    }
+    response = session.post("https://knuin.knu.ac.kr/public/web/stddm/lsspr/syllabus/lectPlnInqr/selectListLectPlnInqr", json=payload)
+
+    data = response.json()
+    
+    # 한글 출력 테스트
+    # print(json.dumps(data, indent=4, ensure_ascii=False))
+
+    if data.get("data") and len(data["data"]) > 0:
+        lec_data = data["data"][0]
+        res = {
+            "subj_class_cde": lec_data.get("crseNo", "").replace("-", ""),
+            "subj_nm": lec_data.get("sbjetNm"),
+            "unit": int(lec_data.get("crdit", 0)),
+            "prof_nm": lec_data.get("totalPrfssNm"),
+            "lect_quota": int(lec_data.get("attlcPrscpCnt", 0)), # 수강정원
+            "lect_req_cnt": int(lec_data.get("appcrCnt", 0)), # 수강신청인원
+        }
+    else:
+        res = {
+            "subj_class_cde": lecCode,
+            "subj_nm": "Unknown",
+            "unit": 0,
+            "prof_nm": "Unknown",
+            "lect_quota": 0,
+            "lect_req_cnt": 0,
+        }
     return res
 
 
@@ -77,9 +141,14 @@ def initializer():
 
 
 if __name__ == "__main__":
-    global CONFIG
     pool = None
     browser = None
+
+    ## 소프트웨어특강(COMP0432001)으로 getLectInfo 디버깅
+    '''
+    getLecInfo("COMP0432001")
+    exit()
+    '''
 
     ### Parse arguments
     parser = argparse.ArgumentParser()
@@ -98,18 +167,27 @@ if __name__ == "__main__":
         ### Configure multiprocess pool, chromedriver
         freeze_support()
         pool = Pool(processes=CONFIG["general"]["pool_size"], initializer=initializer)
-        browser = webdriver.Chrome(CONFIG["general"]["chromedriver_path"])
+        # Use Selenium Manager (Selenium 4.6+) to automatically handle ChromeDriver
+        browser = webdriver.Chrome()
 
         ### Login to sugang
         if not loginSugang(browser, **CONFIG["login"]):
             raise Exception("LoginFailureException")
 
+        ### '꾸러미신청목록' 클릭
+        e = browser.find_element(By.ID, "tabs2")
+        e.click()
+
         ### Main loop
+        # TODO - 꾸러미신청목록에 있는 강의들 순서대로 클릭하는 거 만들어야 됨
+        # TODO - config.js에서 중요한 순서대로 강의가 입력된 걸로 간주해서 눌러지게 해야함
+        # TODO - 정각 10분전에 자동으로 브라우저 로그인되게 한 다음, 정각에 신청 눌러지게 해야 함 (시간 기록해서 전공시간인지, 교양시간인지 체크)
+
         while True:
             ## Check remaining session time
             session_renew = CONFIG["general"]["session_renew"]  # remaining sec threshold
             try:
-                e = browser.find_element_by_id("timeStatus")
+                e = browser.find_element(By.ID, "timeStatus")
                 remain_sec = int(e.text.split("초")[0])
             except:
                 remain_sec = 1200  # Initially it does not exist
@@ -118,7 +196,7 @@ if __name__ == "__main__":
             if remain_sec < session_renew:
                 # Renew
                 print("INFO", "Login renewing...")
-                e = browser.find_element_by_class_name("stop")
+                e = browser.find_element(By.CLASS_NAME, "stop")
                 e.click()
                 if not loginSugang(browser, **CONFIG["login"]):
                     raise Exception("LoginFailureException")
@@ -126,8 +204,8 @@ if __name__ == "__main__":
             print("VERBOSE", f"Remain {remain_sec}sec")
             
             ## Main logic
-            regTable = browser.find_element_by_css_selector("#onlineLectReqGrid > div.data > table > tbody")
-            packTable = browser.find_element_by_css_selector("#lectPackReqGrid > div.data > table > tbody")
+            regTable = browser.find_element(By.CSS_SELECTOR, "#onlineLectReqGrid > div.data > table > tbody")
+            packTable = browser.find_element(By.CSS_SELECTOR, "#lectPackReqGrid > div.data > table > tbody")
             
             r = pool.map(getLecInfo, CONFIG["request"]["lectures"])
             # print(r)
@@ -153,8 +231,8 @@ if __name__ == "__main__":
                 if lecInfo["lect_req_cnt"] < lecInfo["lect_quota"]:
                     # Check if it's already registered
                     already = False
-                    for tr in regTable.find_elements_by_tag_name("tr"):
-                        td = tr.find_elements_by_tag_name("td")
+                    for tr in regTable.find_elements(By.TAG_NAME, "tr"):
+                        td = tr.find_elements(By.TAG_NAME, "td")
                         if td and td[1].text == lecInfo["subj_class_cde"]:
                             print("WARNING", f"{lecInfo['subj_class_cde']}: Already registered")
                             already = True
@@ -163,8 +241,8 @@ if __name__ == "__main__":
                         continue
 
                     succeed = False
-                    for tr in packTable.find_elements_by_tag_name("tr"):
-                        td = tr.find_elements_by_tag_name("td")
+                    for tr in packTable.find_elements(By.TAG_NAME, "tr"):
+                        td = tr.find_elements(By.TAG_NAME, "td")
                         if td and td[0].text == lecInfo["subj_class_cde"]:
                             try:
                                 td[10].click()

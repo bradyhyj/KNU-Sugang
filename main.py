@@ -71,6 +71,7 @@ def getLecInfo(lecCode):
 
     # payload
     # sy.knu.ac.kr에서 강좌정보를 가져옵니다.
+    # "sbjetDvnno"이 분반정보
     payload = {
     "search": {
         "estblYear": now_year,
@@ -102,8 +103,10 @@ def getLecInfo(lecCode):
         "sdgCltreYn": "",
         "rltmCrseYn": "",
         "riseRmtCrseYn": "",
-        "coRcgnnSbjetYn": ""
+        "coRcgnnSbjetYn": "",
+        "sbjetDvnno": lecCode[8:]
     }}
+
 
     # response = session.post(CONFIG["general"]["lecinfo_url"], data={
     response = session.post("https://knuin.knu.ac.kr/public/web/stddm/lsspr/syllabus/lectPlnInqr/selectListLectPlnInqr", json=payload)
@@ -205,11 +208,13 @@ if __name__ == "__main__":
             
             ## Main logic
             regTable = browser.find_element(By.CSS_SELECTOR, "#onlineLectReqGrid > div.data > table > tbody")
-            packTable = browser.find_element(By.CSS_SELECTOR, "#lectPackReqGrid > div.data > table > tbody")
+            packTable = browser.find_element(By.CSS_SELECTOR, "#grid01")
             
             r = pool.map(getLecInfo, CONFIG["request"]["lectures"])
+            
+            ## sy.knu.ac.kr 테스트
             # print(r)
-
+            # exit()
 
 
             """

@@ -182,7 +182,7 @@ if __name__ == "__main__":
         e.click()
 
         ### Main loop
-        # TODO - 꾸러미신청목록에 있는 강의들 순서대로 클릭하는 거 만들어야 됨
+        # TODO - 꾸러미신청목록에 있는 강의들 순서대로 클릭하는 거 만들어야 됨 (구현 시도하였으나 아직 작동안됨)
         # TODO - config.js에서 중요한 순서대로 강의가 입력된 걸로 간주해서 눌러지게 해야함
         # TODO - 정각 10분전에 자동으로 브라우저 로그인되게 한 다음, 정각에 신청 눌러지게 해야 함 (시간 기록해서 전공시간인지, 교양시간인지 체크)
 
@@ -207,7 +207,8 @@ if __name__ == "__main__":
             print("VERBOSE", f"Remain {remain_sec}sec")
             
             ## Main logic
-            regTable = browser.find_element(By.CSS_SELECTOR, "#onlineLectReqGrid > div.data > table > tbody")
+            # regTable은 수강신청된 목록임.
+            # regTable = browser.find_element(By.CSS_SELECTOR, "#onlineLectReqGrid > div.data > table > tbody")
             packTable = browser.find_element(By.CSS_SELECTOR, "#grid01")
             
             r = pool.map(getLecInfo, CONFIG["request"]["lectures"])
@@ -232,38 +233,24 @@ if __name__ == "__main__":
             for lecInfo in r:
                 print("VERBOSE", f"{lecInfo['subj_class_cde']}: r{lecInfo['lect_req_cnt']}, q{lecInfo['lect_quota']}")
 
-                # If available (req_cnt < quota), find lecture in packTable
-                if lecInfo["lect_req_cnt"] < lecInfo["lect_quota"]:
-                    # Check if it's already registered
-                    already = False
-                    for tr in regTable.find_elements(By.TAG_NAME, "tr"):
-                        td = tr.find_elements(By.TAG_NAME, "td")
-                        if td and td[1].text == lecInfo["subj_class_cde"]:
-                            print("WARNING", f"{lecInfo['subj_class_cde']}: Already registered")
-                            already = True
-                            break
-                    if already:
-                        continue
-
-                    succeed = False
-                    for tr in packTable.find_elements(By.TAG_NAME, "tr"):
-                        td = tr.find_elements(By.TAG_NAME, "td")
-                        if td and td[0].text == lecInfo["subj_class_cde"]:
+                for tr in packTable.find_elements(By.TAG_NAME, "tr"):
+                    td = tr.find_elements(By.TAG_NAME, "td")
+                    if td and td[2].text == lecInfo["subj_class_cde"][0:8]:
+                        if lecInfo["lect_req_cnt"] < lecInfo["lect_quota"]:
                             try:
-                                td[10].click()
+                                td[1].click()
                                 WebDriverWait(browser, 0).until(expected_conditions.alert_is_present())
                                 alert = browser.switch_to.alert
-                                print("INFO", f"{lecInfo['subj_class_cde']}: {alert.text}")
+                                print("INFO", f"{lecInfo['subj_class_cde'][0:8]}: {alert.text}")
+
                                 alert.accept()
-                                succeed = True
+
                             except TimeoutException:
                                 print("INFO", "no alert")
-                    if not succeed:
-                        print("ERROR", "Not found in packTable")
                 else:
                     continue
             time.sleep(CONFIG["general"]["delay_sec"])
-
+    
     except KeyboardInterrupt:
         print("KeyboardInterrupt")
     except Exception as e:
